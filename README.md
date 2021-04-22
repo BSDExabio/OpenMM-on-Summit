@@ -51,11 +51,9 @@ conda activate openmm
 
 # Run a simtk provided script testing the installation.
 python -m simtk.testInstallation
-```
 
-This script returns this for me:
+# This script returns this for me:
 
-```
 OpenMM Version: 7.4
 Git Revision: d5905f89bd97d4fa8bfa8a90f6c8b8a3f4bab02d
 
@@ -69,7 +67,7 @@ Median difference in forces between platforms:
 
 Reference vs. CPU: 0.194358  *** LARGE DIFFERENCE **
 Reference vs. CUDA: 6.73486e-06
-CPU vs. CUDA: 0.199485  *** LARGE DIFFERENCE **
+CPU vs. CUDA: 0.199485  *** LARGE DIFFERENCE ***
 ```
 
 We should not use the CPU platform for any calculations on OpenMM installed on SUMMIT
