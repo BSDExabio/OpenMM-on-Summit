@@ -74,7 +74,8 @@ We should not use the CPU platform for any calculations on OpenMM installed on S
 
 ```
 # FURTHER TESTING OF THE INSTALLATION
-# Need to move into the examples of a git cloned openmm-master. 
+# Need to move into the examples directory of a git cloned openmm-master. 
+git clone https://github.com/openmm/openmm.git
 cd openmm-master/examples/
 
 # Run the benchmark via jsrun requesting
@@ -93,4 +94,10 @@ Integrated 50367 steps in 29.286 seconds
 742.968 ns/day
 ```
 
-
+If you get an error, such as below, while running this command, you need to edit the preamble of benchmark.py script to switch from openmm to simtk.openmm. The one exception is openmm.utils should be converted to simtk.utils.
+```
+Traceback (most recent call last):
+  File "benchmark.py", line 2, in <module>
+    import openmm.app as app
+ModuleNotFoundError: No module named 'openmm'
+```
