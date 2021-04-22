@@ -10,11 +10,12 @@ Also, examples provided are taken from the openmm git repo that can be found [he
 
 First, install `miniconda`:
 ```bash
-#This script is already included in the repo but if you want the newest version
+module load cuda/10.1.105 gcc/8.1.1
 wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-ppc64le.sh
 bash Miniconda3-latest-Linux-ppc64le.sh -b -p miniconda
 # Initialize your ~/.bash_profile
-conda init bash
+miniconda/bin/conda init bash
+source ~/.bashrc
 ```
 
 The `ppc64le` packages have been uploaded to the [`omnia`](https://anaconda.org/omnia) and [`conda-forge`](https://anaconda.org/conda-forge) channels:
@@ -41,15 +42,41 @@ conda install --yes -c omnia-dev/label/cuda101 openmm
 # Log into a batch node
 bsub -W 2:00 -nnodes 1 -P bip198 -alloc_flags gpudefault -Is /bin/bash
 
+# Source the bashrc. Load the CUDA and appropriate MPI modules:
+source ~/.bashrc
+module load cuda/10.1.105 gcc/8.1.1
+
 # Make sure to activate conda environment
 conda activate openmm
 
-# Load the CUDA and appropriate MPI modules:
-module load cuda/10.1.105 gcc/8.1.1
+# Run a simtk provided script testing the installation.
+python -m simtk.testInstallation
+
+```
+> OpenMM Version: 7.4
+> Git Revision: d5905f89bd97d4fa8bfa8a90f6c8b8a3f4bab02d
+
+> There are 3 Platforms available:
+
+> 1 Reference - Successfully computed forces
+> 2 CPU - Successfully computed forces
+> 3 CUDA - Successfully computed forces
+
+> Median difference in forces between platforms:
+
+> Reference vs. CPU: 0.194358  *** LARGE DIFFERENCE **
+> Reference vs. CUDA: 6.73486e-06
+> CPU vs. CUDA: 0.199485  *** LARGE DIFFERENCE **
+
+We should not use the CPU platform for any calculations on OpenMM installed on SUMMIT
+```
+```
+# FURTHER TESTING OF THE INSTALLATION
+# Need to move into the examples of a git cloned openmm-master. 
+cd openmm-master/examples/
 
 # Run the benchmark via jsrun requesting
 # one resource set (-n 1), one MPI process (-a 1), one core (-c 1), one GPU (-g 1)
-cd ~/openmm/examples
 jsrun --smpiargs="none" -n 1 -a 1 -c 1 -g 1 python benchmark.py --platform=CUDA --test=pme --precision=mixed --seconds=30 --heavy-hydrogens
 ```
 I see the following benchmarks on Summit:
@@ -58,7 +85,10 @@ Platform: CUDA
 Precision: mixed
 
 Test: pme (cutoff=0.9)
+Ensemble: NVT
 Step Size: 5 fs
-Integrated 48894 steps in 28.5644 seconds
-739.46 ns/day
+Integrated 50367 steps in 29.286 seconds
+742.968 ns/day
 ```
+
+

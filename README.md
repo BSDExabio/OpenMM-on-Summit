@@ -36,7 +36,7 @@ conda activate openmm
 conda install --yes -c omnia-dev/label/cuda101 openmm
 ```
 
-## Testing openmm
+## Testing OpenMM
 
 ```bash
 # Log into a batch node
@@ -51,25 +51,29 @@ conda activate openmm
 
 # Run a simtk provided script testing the installation.
 python -m simtk.testInstallation
+```
+
+This script returns this for me:
 
 ```
-> OpenMM Version: 7.4
-> Git Revision: d5905f89bd97d4fa8bfa8a90f6c8b8a3f4bab02d
+OpenMM Version: 7.4
+Git Revision: d5905f89bd97d4fa8bfa8a90f6c8b8a3f4bab02d
 
-> There are 3 Platforms available:
+There are 3 Platforms available:
 
-> 1 Reference - Successfully computed forces
-> 2 CPU - Successfully computed forces
-> 3 CUDA - Successfully computed forces
+1 Reference - Successfully computed forces
+2 CPU - Successfully computed forces
+3 CUDA - Successfully computed forces
 
-> Median difference in forces between platforms:
+Median difference in forces between platforms:
 
-> Reference vs. CPU: 0.194358  *** LARGE DIFFERENCE **
-> Reference vs. CUDA: 6.73486e-06
-> CPU vs. CUDA: 0.199485  *** LARGE DIFFERENCE **
+Reference vs. CPU: 0.194358  *** LARGE DIFFERENCE **
+Reference vs. CUDA: 6.73486e-06
+CPU vs. CUDA: 0.199485  *** LARGE DIFFERENCE **
+```
 
 We should not use the CPU platform for any calculations on OpenMM installed on SUMMIT
-```
+
 ```
 # FURTHER TESTING OF THE INSTALLATION
 # Need to move into the examples of a git cloned openmm-master. 
