@@ -6,11 +6,11 @@ Also, examples provided are taken from the openmm git repo that can be found [he
 
 ## Setting up OpenMM on Summit
 
-### Mise en Place
+### Setup
 
 First, install `miniconda`:
 ```bash
-module load cuda/10.1.105 gcc/8.1.1
+module load cuda/11.0.3 gcc/11.1.0
 wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-ppc64le.sh
 bash Miniconda3-latest-Linux-ppc64le.sh -b -p miniconda
 # Initialize your ~/.bash_profile
@@ -29,22 +29,25 @@ conda update --yes --all
 
 ```bash
 # Create a new environment named 'openmm'
-conda create -n openmm python==3.7
+conda create -n openmm python==3.9
 # Activate it
 conda activate openmm
-# Install the 'openmm' 7.4.0 dev package for ppc64le into this environment
-conda install --yes -c omnia-dev/label/cuda101 openmm
+# Install the 'openmm' 7.6.0 for ppc64le into this environment
+conda install --yes -c omnia-dev/label/cuda110 openmm
+conda install pdbfixer dask parmed
 ```
 
 ## Testing OpenMM
 
 ```bash
-# Log into a batch node
+# start an interactive job on a single node of SUMMIT
 bsub -W 2:00 -nnodes 1 -P bip198 -alloc_flags gpudefault -Is /bin/bash
+# test installation of OpenMM
+python -m simtk.testInstallation
 
 # Source the bashrc. Load the CUDA and appropriate MPI modules:
 source ~/.bashrc
-module load cuda/10.1.105 gcc/8.1.1
+module load cuda/11.0.3 gcc/11.1.0
 
 # Make sure to activate conda environment
 conda activate openmm
@@ -52,25 +55,28 @@ conda activate openmm
 # Run a simtk provided script testing the installation.
 python -m simtk.testInstallation
 
-# Returns this for me:
+# Should return something like this:
 
-OpenMM Version: 7.4
-Git Revision: d5905f89bd97d4fa8bfa8a90f6c8b8a3f4bab02d
+OpenMM Version: 7.6
+Git Revision: ad113a0cb37991a2de67a08026cf3b91616bafbe
 
-There are 3 Platforms available:
+There are 4 Platforms available:
 
 1 Reference - Successfully computed forces
 2 CPU - Successfully computed forces
 3 CUDA - Successfully computed forces
+4 OpenCL - Error computing forces with OpenCL platform
+
+OpenCL platform error: Error compiling kernel: 
 
 Median difference in forces between platforms:
 
-Reference vs. CPU: 0.194358  *** LARGE DIFFERENCE **
-Reference vs. CUDA: 6.73486e-06
-CPU vs. CUDA: 0.199485  *** LARGE DIFFERENCE ***
-```
+Reference vs. CPU: 6.3174e-06
+Reference vs. CUDA: 6.73126e-06
+CPU vs. CUDA: 6.57691e-07
 
-We should not use the CPU platform for any calculations on OpenMM installed on SUMMIT.
+All differences are within tolerance.
+```
 
 ```
 # FURTHER TESTING OF THE INSTALLATION
