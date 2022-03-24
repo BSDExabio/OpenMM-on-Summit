@@ -22,8 +22,8 @@
                         full path to the python script to be run within the subprocess
 
     HARD CODED VARIABLES:
-        prmtop_file:
-        inpcrd_file:
+        PRMTOP_FILE:
+        INPCRD_FILE:
         DIRECTORY: name of the directory within which output for each task will be written
 """
 
@@ -48,9 +48,9 @@ from distributed import Client, Worker, as_completed, get_worker
 import logging_functions
 
 # NOTE: hard coded variables for the moment.
-prmtop_file = '/gpfs/alpine/proj-shared/bip198/dask_testing/md_simulations/enam_726.prmtop'
-inpcrd_file = '/gpfs/alpine/proj-shared/bip198/dask_testing/md_simulations/enam_726.ncrst'
-DIRECTORY   = 'test1'
+PRMTOP_FILE = '/gpfs/alpine/proj-shared/bip198/dask_testing/md_simulations/enam_726.prmtop'
+INPCRD_FILE = '/gpfs/alpine/proj-shared/bip198/dask_testing/md_simulations/enam_726.ncrst'
+DIRECTORY   = 'enam_726'
 
 #######################################
 ### DASK RELATED FUNCTIONS
@@ -96,9 +96,11 @@ def submit_pipeline(run_number,script='',prmtop_file='',inpcrd_file='',save_dire
         return platform.node(), worker.id, start_time, time.time(), simulation_path
 
     except CalledProcessError as e:
+        print(e)
         return platform.node(), worker.id, start_time, time.time(), f'failed to complete {run_number}'
 
     except Exception as e:
+        print(e)
         return platform.node(), worker.id, start_time, time.time(), f'failed to complete {run_number}'
 
 
@@ -111,7 +113,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Molecular dynamics simulation task manager')
     parser.add_argument('--scheduler-timeout', '-t', default=5000, type=int, help='dask scheduler timeout')
     parser.add_argument('--scheduler-file', '-s', required=True, help='dask scheduler file')
-    parser.add_argument('--N-simulations', '-n', required=True, help='integer used to set the number of total simulations (tasks) that will be performed')
+    parser.add_argument('--N-simulations', '-n', required=True, type=int, help='integer used to set the number of total simulations (tasks) that will be performed')
     parser.add_argument('--timings-file', '-ts', required=True, help='CSV file for protein processing timings')
     parser.add_argument('--working-dir', '-wd', required=True, help='path that points to the working directory for the output files')
     parser.add_argument('--script-path', '-sp', required=True, help='path that points to the script for the subprocess call')
@@ -130,9 +132,9 @@ if __name__ == '__main__':
     main_logger.info(f'Timing file: {args.timings_file}')
     main_logger.info(f'Working directory: {args.working_dir}')
     main_logger.info(f'Path to subprocess script: {args.script_path}')
-    main_logger.info(f'PRMTOP file: {prmtop_file}')
-    main_logger.info(f'INPCRD file: {inpcrd_file}')
-    main_logger.info(f'Output path: {args.working_dir+DIRECTORY}')
+    main_logger.info(f'PRMTOP file: {PRMTOP_FILE}')
+    main_logger.info(f'INPCRD file: {INPCRD_FILE}')
+    main_logger.info(f'Output path: {args.working_dir}')
     dask_parameter_string = ''
     for key, value in dask.config.config.items():
         dask_parameter_string += f"'{key}': '{value}'\n"
@@ -161,7 +163,7 @@ if __name__ == '__main__':
     main_logger.info(f'Waited for {NUM_WORKERS} workers took {time.time() - wait_start} sec')
     workers_info = client.scheduler_info()['workers']
     connected_workers = len(workers_info)
-    main_logger.info(f'{connected_workers} workers connected.')
+    main_logger.info(f'{connected_workers} workers connected.\n################################################################################')
 
     # do the thing.
     task_futures = client.map(submit_pipeline,run_strings, script = args.script_path, prmtop_file = PRMTOP_FILE, inpcrd_file = INPCRD_FILE, save_directory = DIRECTORY, working_directory = args.working_dir, pure=False) 
