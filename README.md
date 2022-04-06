@@ -100,20 +100,5 @@ Integrated 50367 steps in 29.286 seconds
 742.968 ns/day
 ```
 
-If you get an error, such as below, while running this command, you need to edit the preamble of benchmark.py script to switch from openmm to simtk.openmm.
-```
-Traceback (most recent call last):
-  File "benchmark.py", line 2, in <module>
-    import openmm.app as app
-ModuleNotFoundError: No module named 'openmm'
-```
 
-Here is the fixed preamble lines:
-```
-import simtk.openmm.app as app
-import simtk.openmm as mm
-import simtk.unit as unit
-```
-
-This error likely occurs because the OpenMM developers have not pushed changes in module naming to the Power9 developed code base. 
 
