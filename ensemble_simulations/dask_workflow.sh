@@ -1,17 +1,12 @@
 #!/bin/bash
 #
-# Batch submission script for testing post-AF minimization run on Summit
-#
-# Support issue-14 branch on PSP git repository
-#
-##BSUB -P BIP198
 #BSUB -P BIF135
 #BSUB -W 2:00
-#BSUB -nnodes 32
+#BSUB -nnodes 2
 #BSUB -alloc_flags gpudefault
-#BSUB -J af_min
-#BSUB -o afold_min.%J.out
-#BSUB -e afold_min.%J.err
+#BSUB -J openmm_testing
+#BSUB -o md.%J.out
+#BSUB -e md.%J.err
 #BSUB -N
 #BSUB -B
 
@@ -57,7 +52,9 @@ cat $LSB_DJOB_HOSTFILE | sort | uniq > $LSB_JOBID.hosts		# catches both the batc
 
 # We need to figure out the number of nodes to later spawn the workers
 NUM_NODES=$(cat $LSB_JOBID.hosts | wc -l)	# count number of lines in $LSB_JOBID.hosts
-export NUM_NODES=$(expr $NUM_NODES - 1)		# subtract by one to ignore the batch node
+echo $NUM_NODES
+let x=$NUM_NODES y=-1 NUM_NODES=x+y
+echo $NUM_NODES
 
 echo "################################################################################"
 echo "Using python: " `which python3`
@@ -68,7 +65,7 @@ echo "NUM_NODES: $NUM_NODES"
 echo "################################################################################"
 
 ##
-## Start dask scheduler on an arbitrary couple of CPUs (more than one CPU to handle overhead of managing all the dask workers).
+## Start dask scheduler on an arbitrary couple of CPUs
 ##
 
 # The scheduler doesn't need GPUs. We give it 2 CPUs to handle the overhead of managing so many workers.
@@ -77,7 +74,7 @@ jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 2 -
 	dask-scheduler --interface ib0 --no-dashboard --no-show --scheduler-file $SCHEDULER_FILE &
 
 # Give the scheduler a chance to spin up.
-sleep 15
+sleep 5
 
 ##
 ## Start the dask-workers, which will be paired up to an individual GPU.  This bash script will manage the dask workers and GPU allocation for each Summit node.
@@ -91,7 +88,7 @@ jsrun --smpiargs="off" --rs_per_host 6 --tasks_per_rs 1 --cpu_per_rs 1 --gpu_per
 echo Waiting for workers
 
 # Hopefully long enough for some workers to spin up and wait for work
-sleep 30
+sleep 5
 
 # Run the client task manager; like the scheduler, this just needs a single core to noodle away on, which python takes naturally (no jsrun call needed)
 jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 1 --gpu_per_rs 0 --latency_priority cpu-cpu \
