@@ -2,8 +2,8 @@
 #
 #BSUB -P BIF135-ONE
 #BSUB -W 0:45
-#BSUB -nnodes 50
-#BSUB -alloc_flags gpudefault
+#BSUB -nnodes 1500
+#BSUB -alloc_flags "gpudefault nvme"
 #BSUB -J dask_testing
 #BSUB -o omm_md.%J.out
 #BSUB -e omm_md.%J.err
@@ -35,7 +35,7 @@ unset __conda_setup
 conda activate openmm
 
 # set active directory and file variables
-SRC_DIR=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/md_simulations
+SRC_DIR=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/md_simulations/nvme_capable
 RUN_DIR=$SRC_DIR/$LSB_JOBID
 SCHEDULER_FILE1=${RUN_DIR}/scheduler_file_1.json
 SCHEDULER_FILE2=${RUN_DIR}/scheduler_file_2.json
@@ -87,9 +87,6 @@ jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 36 
 	dask-scheduler --interface ib0 --no-dashboard --no-show --scheduler-file $SCHEDULER_FILE2 &
 dask_pids="$dask_pids $!"
 
-## Give the scheduler a chance to spin up.
-#sleep 5
-
 ##
 ## Start the dask-workers, which will be paired up to an individual GPU.  This bash script will manage the dask workers and GPU allocation for each Summit node.
 ##
@@ -104,21 +101,19 @@ jsrun --smpiargs="off" --nrs $N_WORKERS --rs_per_host 6 --tasks_per_rs 1 --cpu_p
 	dask-worker --nthreads 1 --nworkers 1 --interface ib0 --no-dashboard --no-nanny --reconnect --scheduler-file ${SCHEDULER_FILE2} &
 dask_pids="$dask_pids $!"
 
-## Hopefully long enough for some workers to spin up and wait for work
-#echo Waiting for workers
-#sleep 5
-
 client_pids=""
 # Run the client task manager; this just needs a single core to noodle away on but we can give it some more just in case...
 jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 36 --gpu_per_rs 0 --latency_priority cpu-cpu \
 	--stdio_stdout ${RUN_DIR}/tskmgr1.stdout --stdio_stderr ${RUN_DIR}/tskmgr1.stderr \
-	python3 ${SRC_DIR}/md_tskmgr.py --scheduler-file $SCHEDULER_FILE1 --N-simulations $N_TASKS --timings-file timings1.csv --tskmgr-log-name tskmgr1.log --working-dir ${RUN_DIR} --run-dir md_simulations1 &
+	python3 ${SRC_DIR}/md_tskmgr.py --scheduler-file $SCHEDULER_FILE1 --N-simulations $N_TASKS --timings-file timings1.csv --tskmgr-log-name tskmgr1.log --working-dir ${RUN_DIR} --run-dir md_simulations1 --nvme-path /mnt/bb/$USER/ &
 client_pids="$client_pids $!"
+signal1=$?
 
 jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 36 --gpu_per_rs 0 --latency_priority cpu-cpu \
 	--stdio_stdout ${RUN_DIR}/tskmgr2.stdout --stdio_stderr ${RUN_DIR}/tskmgr2.stderr \
-	python3 ${SRC_DIR}/md_tskmgr.py --scheduler-file $SCHEDULER_FILE2 --N-simulations $N_TASKS --timings-file timings2.csv --tskmgr-log-name tskmgr2.log --working-dir ${RUN_DIR} --run-dir md_simulations2 & 
+	python3 ${SRC_DIR}/md_tskmgr.py --scheduler-file $SCHEDULER_FILE2 --N-simulations $N_TASKS --timings-file timings2.csv --tskmgr-log-name tskmgr2.log --working-dir ${RUN_DIR} --run-dir md_simulations2 --nvme-path /mnt/bb/$USER/ & 
 client_pids="$client_pids $!"
+signal2=$?
 
 wait $client_pids
 
@@ -128,7 +123,8 @@ do
         kill $pid
 done
 
-echo Run finished.
+[ $signal1 -eq 0 ] && echo "Partition 1 finished successfully."
+[ $signal2 -eq 0 ] && echo "Partition 2 finished successfully."
 
 date
 

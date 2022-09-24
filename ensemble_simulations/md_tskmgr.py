@@ -18,6 +18,8 @@
                         path that points to the working directory for the output files
         --run-dir /path/to/dir/run_x/, -rd /path/to/dir/run_x/
                         path that points to the dask run's working directory for the output files
+        --nvme-path /path/on/nvme/, -nvme /path/on/nvme/
+                        path that points to the nvme storage space where workers will save their files until needing to transfer them.
         --tskmgr-log-file /path/to/dir/log_file.log, -log /path/to/dir/log_file.log
                         path to a new log file within which logging information will be pritned
 
@@ -35,6 +37,7 @@ import stat
 import traceback
 from pathlib import Path
 from uuid import uuid4
+import shutil
 
 import numpy as np
 import csv
@@ -109,16 +112,18 @@ def append_timings(csv_writer, file_object, hostname, worker_id, start_time, sto
     file_object.flush()
 
 
-def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_directory = ''):
+def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_directory = '', nvme_space = ''):
     """
     """
     start_time = time.time()
     worker = get_worker()
 
     # setting up the working directory for this specific simulation
-    working_directory = Path(outer_directory) / run_number
+    final_directory = outer_directory / run_number
+    nvme_directory  = nvme_space / run_number
+
     try:
-        working_directory.mkdir(mode=0o777,parents=True,exist_ok=False)
+        nvme_directory.mkdir(mode=0o777,parents=True,exist_ok=False)
     except FileExistsError as e:
         #print(f"Exception occurred. Return code {e.returncode}")
         #print(f"Exception cmd: {e.cmd}")
@@ -130,7 +135,7 @@ def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_direct
         return platform.node(), worker().id, start_time, time.time(), run_number, -2
 
     # setting up logging 
-    sim_logger = setup_logger(f'sim_logger_{run_number}',str(working_directory / 'simulation.log'))    # unclear to me at this time whether the setup_logger/logging module can take Path objects instead of a string
+    sim_logger = setup_logger(f'sim_logger_{run_number}',str(nvme_directory / 'simulation.log'))    # unclear to me at this time whether the setup_logger/logging module can take Path objects instead of a string
     sim_logger.info(f'Starting at {time.time()}')
 
     # move these to a input dictionary that is created before the client script is started
@@ -177,9 +182,9 @@ def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_direct
         
         # SETTING up output files.
         sim_logger.info('Setting reporter files.')
-        dcd_file = working_directory / 'traj.dcd'
+        dcd_file = nvme_directory / 'traj.dcd'
         simulation.reporters.append(openmm.app.dcdreporter.DCDReporter(str(dcd_file),trj_freq))
-        report_file = working_directory / 'traj.out'
+        report_file = nvme_directory / 'traj.out'
         simulation.reporters.append(openmm.app.statedatareporter.StateDataReporter(str(report_file),data_freq,step=True,potentialEnergy=True,kineticEnergy=True,temperature=True,volume=True,density=True,speed=True))
     except Exception as e:
         #print(f"Exception occurred. Return code {e.returncode}")
@@ -191,6 +196,9 @@ def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_direct
         print(str(e), file=sys.stderr, flush=True)
 
         clean_logger(sim_logger)
+
+        shutil.copytree(nvme_directory,final_directory)
+        
         return platform.node(), worker().id, start_time, time.time(), run_number, -1
 
     # RUNNING the simulation
@@ -203,6 +211,7 @@ def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_direct
         sim_logger.info(f'Done! Ending at {time.time()}')
 
         clean_logger(sim_logger)
+        shutil.copytree(nvme_directory,final_directory)
         return platform.node(), worker.id, start_time, time.time(), run_number, num_steps
 
     except Exception as e:
@@ -222,6 +231,7 @@ def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_direct
                     nSteps = int(final_report.split(',')[0])
         
         clean_logger(sim_logger)
+        shutil.copytree(nvme_directory,final_directory)
         return platform.node(), worker.id, start_time, time.time(), run_number, nSteps
 
 
@@ -237,6 +247,7 @@ if __name__ == '__main__':
     parser.add_argument('--timings-file', '-ts', required=True, help='CSV file for protein processing timings')
     parser.add_argument('--working-dir', '-wd', required=True, help='path that points to the working directory for the output files')
     parser.add_argument('--run-dir', '-rd', required=True, help="path that points to the dask run's working directory for the output files")
+    parser.add_argument('--nvme-path', '-nvme', required=True, help="path that points to the nvme storage space where workers will save their files until needing to transfer them.")
     parser.add_argument('--tskmgr-log-name', '-log', required=True, help='string that will be used to store logging info for this run')
     args = parser.parse_args()
 
@@ -245,7 +256,10 @@ if __name__ == '__main__':
 
     # setting up files and directories
     working_dir = Path(args.working_dir)
+    nvme_dir    = Path(args.nvme_path)
     full_working_dir = working_dir / args.run_dir
+    full_nvme_dir    = nvme_dir / args.run_dir
+    full_nvme_dir.mkdir(mode=0o777,parents=True,exist_ok=False)
 
     # logger file
     main_logger = setup_logger('tskmgr_logger',str(working_dir / f'{args.tskmgr_log_name}'))    # unclear to me at this time whether the setup_logger/logging module can take Path objects instead of a string
@@ -254,7 +268,7 @@ if __name__ == '__main__':
     timings_file_obj  = open(timings_file_name, 'w')
     
     # set up the main logger file and list all relevant parameters.
-    main_logger.info(f'Starting dask pipeline and setting up IO files. Time: {time.time()}\nRUN PARAMETERS:\nWorking directory: {args.working_dir}\nScheduler file: {args.scheduler_file}\nTiming file: {str(timings_file_name)}\nPRMTOP file: {PRMTOP_FILE}\nINPCRD file: {INPCRD_FILE}\nOutput path: {str(full_working_dir)}')
+    main_logger.info(f'Starting dask pipeline and setting up IO files. Time: {time.time()}\nRUN PARAMETERS:\nWorking directory: {str(full_working_dir)}\nNVME run directory: {str(full_nvme_dir)}\nScheduler file: {args.scheduler_file}\nTiming file: {str(timings_file_name)}\nPRMTOP file: {PRMTOP_FILE}\nINPCRD file: {INPCRD_FILE}')
     # gather dask parameters too
     dask_parameter_string = ''
     for key, value in dask.config.config.items():
@@ -281,13 +295,15 @@ if __name__ == '__main__':
     run_strings = [str(uuid4()) for i in range(args.N_simulations)]
     
     # do the thing.
-    main_logger.info(f'Submitting tasks at {time.time()}.')
-    task_futures = client.map(submit_pipeline,run_strings, prmtop_file = PRMTOP_FILE, inpcrd_file = INPCRD_FILE, outer_directory = full_working_dir, pure=False) 
+    main_logger.info(f'Submitting tasks at {time.time()}')
+    task_futures = client.map(submit_pipeline,run_strings, prmtop_file = PRMTOP_FILE, inpcrd_file = INPCRD_FILE, outer_directory = full_working_dir, nvme_space = full_nvme_dir, pure=False) 
 
     # gather results.
     ac = as_completed(task_futures)
     count = 0
     for finished_task in ac:
+        #results = finished_task.result()
+        #print(results)
         hostname, worker_id, start_time, stop_time, run_number, n_steps = finished_task.result()
         # print summary to logging file
         if n_steps <= 0:
