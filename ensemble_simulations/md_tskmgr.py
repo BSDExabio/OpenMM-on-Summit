@@ -112,7 +112,7 @@ def append_timings(csv_writer, file_object, hostname, worker_id, start_time, sto
     file_object.flush()
 
 
-def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_directory = '', nvme_space = ''):
+def md_task(run_number, prmtop_file = '', inpcrd_file = '', outer_directory = '', nvme_space = ''):
     """
     """
     start_time = time.time()
@@ -121,31 +121,30 @@ def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_direct
     # setting up the working directory for this specific simulation
     final_directory = outer_directory / run_number
     nvme_directory  = nvme_space / run_number
-
     try:
         nvme_directory.mkdir(mode=0o777,parents=True,exist_ok=False)
+    
     except FileExistsError as e:
-        #print(f"Exception occurred. Return code {e.returncode}")
-        #print(f"Exception cmd: {e.cmd}")
-
-        #print(e.stdout.decode("utf-8"), file=sys.stdout, flush=True)
-        #print(e.stderr.decode("utf-8"), file=sys.stderr, flush=True)
-
         print(str(e), file=sys.stderr, flush=True)
-        return platform.node(), worker().id, start_time, time.time(), run_number, -2
+        print('If using UUID directory names, go buy a lottery ticket.')
+        return platform.node(), worker.id, start_time, time.time(), run_number, -2
+    
+    except PermissionError as e:
+        print(str(e),file=sys.stderr,flush=True)
+        print(f'Permissions to mkdir not given on {platform.node()} {worker.id} ',file=sys.stderr,flush=True)
+        return platform.node(), worker.id, start_time, time.time(), run_number, -2
 
     # setting up logging 
     sim_logger = setup_logger(f'sim_logger_{run_number}',str(nvme_directory / 'simulation.log'))    # unclear to me at this time whether the setup_logger/logging module can take Path objects instead of a string
     sim_logger.info(f'Starting at {time.time()}')
 
-    # move these to a input dictionary that is created before the client script is started
     # openmm parameters:
     time_step   = 2*openmm.unit.femtosecond # simulation timestep
     ts_float    = 2*10**-6		    # femtoseconds to nanosecond
     temperature = 310*openmm.unit.kelvin    # simulation temperature
     friction    = 1/openmm.unit.picosecond  # collision rate
-    pressure    = 1.01325*openmm.unit.bar   # simulation pressure 
-    mcbarint    = 100			    # number of steps between volume change attempts
+    #pressure    = 1.01325*openmm.unit.bar   # simulation pressure 
+    #mcbarint    = 100			    # number of steps between volume change attempts
     nb_cutoff   = 1.2*openmm.unit.nanometer # distance at which point nonbonding interactions are cutoff
     num_steps   = 250000                    # number of integration steps to run
     trj_freq    = 50000                     # number of steps per written trajectory frame
@@ -186,20 +185,13 @@ def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_direct
         simulation.reporters.append(openmm.app.dcdreporter.DCDReporter(str(dcd_file),trj_freq))
         report_file = nvme_directory / 'traj.out'
         simulation.reporters.append(openmm.app.statedatareporter.StateDataReporter(str(report_file),data_freq,step=True,potentialEnergy=True,kineticEnergy=True,temperature=True,volume=True,density=True,speed=True))
+
     except Exception as e:
-        #print(f"Exception occurred. Return code {e.returncode}")
-        #print(f"Exception cmd: {e.cmd}")
-
-        #print(e.stdout.decode("utf-8"), file=sys.stdout, flush=True)
-        #print(e.stderr.decode("utf-8"), file=sys.stderr, flush=True)
-
         print(str(e), file=sys.stderr, flush=True)
 
         clean_logger(sim_logger)
-
         shutil.copytree(nvme_directory,final_directory)
-        
-        return platform.node(), worker().id, start_time, time.time(), run_number, -1
+        return platform.node(), worker.id, start_time, time.time(), run_number, -1
 
     # RUNNING the simulation
     try:
@@ -215,12 +207,6 @@ def submit_pipeline(run_number, prmtop_file = '', inpcrd_file = '', outer_direct
         return platform.node(), worker.id, start_time, time.time(), run_number, num_steps
 
     except Exception as e:
-        #print(f"Exception occurred. Return code {e.returncode}")
-        #print(f"Exception cmd: {e.cmd}")
-
-        #print(e.stdout.decode("utf-8"), file=sys.stdout, flush=True)
-        #print(e.stderr.decode("utf-8"), file=sys.stderr, flush=True)
-
         print(str(e), file=sys.stderr, flush=True)
         
         nSteps = 0
@@ -290,20 +276,18 @@ if __name__ == '__main__':
     #run_strings = [temp_string %(i) for i in range(args.N_simulations)]
     
     # using uuids instead of run_strings so that we can continually write 
-    #trajectories to the same run directory without worry of overwriting 
-    #files or hitting exceptions
+    # trajectories to the same run directory without worry about overwriting 
+    # files or hitting exceptions
     run_strings = [str(uuid4()) for i in range(args.N_simulations)]
     
     # do the thing.
     main_logger.info(f'Submitting tasks at {time.time()}')
-    task_futures = client.map(submit_pipeline,run_strings, prmtop_file = PRMTOP_FILE, inpcrd_file = INPCRD_FILE, outer_directory = full_working_dir, nvme_space = full_nvme_dir, pure=False) 
+    task_futures = client.map(md_task,run_strings, prmtop_file = PRMTOP_FILE, inpcrd_file = INPCRD_FILE, outer_directory = full_working_dir, nvme_space = full_nvme_dir, pure=False) 
 
     # gather results.
     ac = as_completed(task_futures)
     count = 0
     for finished_task in ac:
-        #results = finished_task.result()
-        #print(results)
         hostname, worker_id, start_time, stop_time, run_number, n_steps = finished_task.result()
         # print summary to logging file
         if n_steps <= 0:
