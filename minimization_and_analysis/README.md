@@ -23,7 +23,7 @@ bsub dask_workflow.sh
 There are a few important details to note in this code. 
 Firstly, the `dask-scheduler` call is given only 2 CPU cores (see line 75, `--cpu_per_rs`). 
 As the number of tasks being performed during the workflow or the total number of workers become large, you will want to increase the compute resources provided to the Dask scheduler because it handles the communications between all workers and the Dask client.
-Secondly, two populations of Dask workers are initiated on lines 87 and 93. 
+Secondly, two populations of Dask workers are initiated on lines 87 and 93 associated with `dask-worker` commands. 
 The first population is provided 1 CPU core and 1 GPU; this set of workers are labeled "GPU=1". On Summit, there are 6 of these workers per compute node since each node has 6 GPUs. 
 The second population is provided 1 CPU core; this set of workers are labeled "CPU=1". 32 of these workers are started per compute node. 
 Finally, the tasks are defined, the Dask client is started, and results are gathered within the `energy_minimization_workflow.py` script. 
