@@ -1,5 +1,9 @@
 #!/bin/bash
 #
+# Batch submission script for testing post-AF minimization run on Summit
+#
+# Support issue-14 branch on PSP git repository
+#
 #BSUB -P BIF135-ONE
 #BSUB -W 2:00
 #BSUB -nnodes 1
@@ -36,11 +40,11 @@ conda activate openmm
 PYTHONPATH=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/Min_and_analysis:$PYTHONPATH
 
 # set active directories
-RUN_DIR=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/Min_and_analysis/test
+RUN_DIR=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/Min_and_analysis/testing
 SCHEDULER_FILE=${RUN_DIR}/scheduler_file.json
-SRC_DIR=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/Min_and_analysis/test
+SRC_DIR=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/Min_and_analysis/
 
-if [ ! -d "$SCHEDULER_DIR" ]
+if [ ! -d "$RUN_DIR" ]
 then
     mkdir -p $RUN_DIR
 fi
@@ -57,7 +61,7 @@ echo "##########################################################################
 echo "Using python: " `which python3`
 echo "PYTHONPATH: " $PYTHONPATH
 echo "SRC_DIR: " $SRC_DIR
-echo "Scheduler file:" $SCHEDULER_FILE
+echo "CPU scheduler file:" $SCHEDULER_FILE
 echo "NUM_NODES: $NUM_NODES"
 echo "################################################################################"
 
@@ -79,13 +83,13 @@ sleep 5
 ##
 ## Start the dask-worker sets
 ##
-# dask worker set 1 for GPU resources; 6 workers per node
+# dask worker set 1 for GPU resources
 jsrun --smpiargs="off" --rs_per_host 6 --tasks_per_rs 1 --cpu_per_rs 1 --gpu_per_rs 1 --latency_priority gpu-cpu --bind none \
 	--stdio_stdout ${RUN_DIR}/gpu_dask_worker.stdout --stdio_stderr ${RUN_DIR}/gpu_dask_worker.stderr \
 	dask-worker --nthreads 1 --nworkers 1 --interface ib0 --no-dashboard --no-nanny --reconnect --scheduler-file ${SCHEDULER_FILE} --resources "GPU=1" &
 dask_pids="$dask_pids $!"
 
-# dask worker set 2 for CPU resources; 32 workers per node
+# dask worker set 2 for CPU resources
 jsrun --smpiargs="off" --rs_per_host 32 --tasks_per_rs 1 --cpu_per_rs 1 --gpu_per_rs 0 --latency_priority cpu-cpu --bind none \
 	--stdio_stdout ${RUN_DIR}/cpu_dask_worker.stdout --stdio_stderr ${RUN_DIR}/cpu_dask_worker.stderr \
 	dask-worker --nthreads 1 --nworkers 1 --interface ib0 --no-dashboard --no-nanny --reconnect --scheduler-file ${SCHEDULER_FILE} --resources "CPU=1" &
@@ -98,7 +102,7 @@ sleep 5
 
 # Run the client task manager; like the scheduler, this just needs a single core to noodle away on, which python takes naturally (no jsrun call needed)
 jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 1 --gpu_per_rs 0 --latency_priority cpu-cpu \
-	python3 ${SRC_DIR}/energy_minimization_workflow.py --scheduler-timeout 5000 --scheduler-file $SCHEDULER_FILE --structure-list-file ${SRC_DIR}/structure_list.txt --working-dir ${RUN_DIR} --openmm-parameters-dictionary ${SRC_DIR}/sample_openmm_parameters.pkl --timings-file ${RUN_DIR}/timings.csv
+	python3 ${SRC_DIR}/energy_minimization_workflow.py $SCHEDULER_FILE ${SRC_DIR}/structure_list.txt ${RUN_DIR}/ ${SRC_DIR}/sample_openmm_parameters.pkl ${RUN_DIR}/timings.csv
 
 # shutting down dask scheduler and worker commands
 for pid in $dask_pids

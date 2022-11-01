@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """ Task manager for running a dask workflow for OpenMM energy minimization pipeline. Three steps:
-    System preparation. Add missing atoms (mainly hydrogens) and prep a pdb file for loading into OpenMM. On CPU resource workers. 
-    Energy minimization. Perform the energy minimization calculation on GPU resource workers.
-    Post-analysis, currently a centering script to remove translational motion. On CPU resource workers. 
+    System preparation. Add missing atoms (mainly hydrogens) and prep a pdb file for loading into OpenMM. Run on CPU resource workers. 
+    Energy minimization. Perform the OpenMM energy minimization calculation on GPU resource workers.
+    Post-analysis, a centering script to remove translational motion as an example. Run on CPU resource workers. 
 
     USAGE: 
-        python3 dask_tskmgr.py [-h] [--scheduler-timeout SCHEDULER_TIMEOUT] --scheduler-file SCHEDULER_FILE --structure-list-file INPUT_FILE --working-dir /path/to/dir/ --openmm-parameters-dictionary OPENMM_DICT.pkl --timings-file TIMINGS_FILE.csv 
+        python3 energy_minimization_workflow.py [-h] [--scheduler-timeout SCHEDULER_TIMEOUT] --scheduler-file SCHEDULER_FILE --structure-list-file INPUT_FILE --working-dir /path/to/dir/ --openmm-parameters-dictionary OPENMM_DICT.pkl --timings-file TIMINGS_FILE.csv 
 
     INPUT: 
         -h, --help      show this help message and exit
@@ -23,35 +23,43 @@
                         CSV file for task processing timings
 """
 
-import sys
-import os
-import time
-import argparse
-import csv
-from pathlib import Path
-import pickle
-import logging
 
 import numpy as np
 import pdbfixer
 import openmm
+
+import logging
+import argparse
+import sys
+import os
+import time
+import csv
+import stat
+from pathlib import Path
+import pickle
 
 import platform
 import dask.config
 from distributed import Client, Worker, as_completed, get_worker
 
 #######################################
-### PRE-PROCESSING FUNCTIONS
+### PRE-PROCESSING FUNCTION
 #######################################
 
 def fix_protein(pdb_file, root_output_path = Path('./')):
     """ Check the structure model for any fixes before sending it to be parameterized and minimized.
     INPUT:
-        pdb_file: path object associated with the pdb structure file that is to be "fixed" by adding missing atoms (i.e. hydrogens). 
-        output_path: path object pointing to where the "fixed" pdb file will be written. 
-        logger_file: file object within which logging information is being written to for this specific protein.
+        pdb_file: pathlib Path object pointing twoards the pdb structure file that is to be "fixed". 
+        output_path: pathlib Path object pointing to where the "fixed" pdb file will be written. 
+    
     RETURNS:
-        output_dict: dictionary with all necessary output keys
+        output_dict: dictionary containing all relevant info and objects for the run. Includes:
+            'task': string that describes this function's purpose
+            'nodeID', 'workerID': information about hardware being used for this calculation
+            'logger_file': pathlib Path object pointing to the system's specific log file
+            'output_pdb_file': path object pointing to the final energy minimized structure 
+            'start_time', 'stop_time': floats, time values
+            'return_code': integer value denoting the success of this function. 
     """
     # prepping the output dictionary object with initial values
     output_dict = {'task': 'preprocessing', 
@@ -66,7 +74,7 @@ def fix_protein(pdb_file, root_output_path = Path('./')):
     # making directory for output
     output_path = root_output_path / pdb_file.parent.name     # NOTE: based on an assumed directory organization
     try:
-        os.makedirs(output_path)
+        os.makedirs(output_path,mode=0o755)
     except FileExistsError:
         pass
     
@@ -76,7 +84,7 @@ def fix_protein(pdb_file, root_output_path = Path('./')):
     output_dict['logger_file'] = Path(file_root + '.log')
     
     # setting up the individual run's logging file
-    prep_logger = setup_logger('minimization_logger', output_dict['logger_file'])
+    prep_logger = setup_logger(f'{pdb_file.stem}_minimization_logger', output_dict['logger_file'])
     prep_logger.info(f"Pre-processing being performed on {output_dict['nodeID']} with {output_dict['workerID']}.")
     prep_logger.info(f'     Checking {pdb_file!s} for any required fixes (missing hydrogens and other atoms, etc).')
     
@@ -145,14 +153,11 @@ def _add_restraints(
 def run_minimization(input_dict, openmm_dictionary = {}):
     """run preparation of OpenMM simulation object and subsequent energy minimization
     INPUT:
-        input_dict: ...
-            
-            
-            pdb_file: path object associated with the "fixed" pdb structure file that is ready for simulation. 
-            logger_file: string pointing to a log file within which logging information is being written for this specific protein.
+        input_dict: dictionary containing all relevant info and objects needed to start the run for the specific system. At least includes values associated with these keys:
+            'pdb_file': pathlib Path object associated with the "fixed" pdb structure file that is ready for simulation.
+            'logger_file': pathlib Path object that points to a log file within which logging information is being written for this specific protein.
+            'return_code': integer value denoting the success of the previous function; 0 == successful preprocessing.
         
-
-
         openmm_dictionary: dictionary object that contains all relevant parameters used for preparation and simulations in OpenMM; keys: 
             "forcefield": string, denotes the force field xml file to be used to prep parameters for the structure. Acceptable values: "amber99sb.xml", "amber14/protein.ff14SB.xml", "amber14/protein.ff15ipq.xml", "charmm36.xml", or others. NOTE: currently only accepts a single string so won't be able to include an implicit solvent model as an additional force field file. 
             "exclude_residues": list of residue indices to be ignored when setting restraints.
@@ -167,6 +172,7 @@ def run_minimization(input_dict, openmm_dictionary = {}):
         output_dict: dictionary containing all relevant info and objects for the run. Includes:
             'task': string that describes this function's purpose
             'nodeID', 'workerID': information about hardware being used for this calculation
+            'logger_file': pathlib Path object pointing to the system's specific log file
             'output_pdb_file': path object pointing to the final energy minimized structure 
             'start_time', 'stop_time': floats, time values
             'return_code': integer value denoting the success of this function. 
@@ -190,7 +196,7 @@ def run_minimization(input_dict, openmm_dictionary = {}):
 
     out_file_path = logger_file.parent / logger_file.stem
     # setting up the individual run's logging file
-    proc_logger = setup_logger('minimization_logger', logger_file)
+    proc_logger = setup_logger(f'{pdb_file.stem}_minimization_logger', logger_file)
     proc_logger.info(f"Prepping OpenMM simulation object and running energy minimization on {output_dict['nodeID']} with {output_dict['workerID']}.")
    
     # gathering openmm parameters
@@ -246,10 +252,6 @@ def run_minimization(input_dict, openmm_dictionary = {}):
         # grab initial energies
         state = simulation.context.getState(getEnergy=True)
         einit = state.getPotentialEnergy().value_in_unit(energy_units)
-        ## grab initial energies and positions
-        #state = simulation.context.getState(getEnergy=True, getPositions=True)
-        #einit = state.getPotentialEnergy().value_in_unit(energy_units)
-        #posinit = state.getPositions(asNumpy=True).value_in_unit(length_units)
         
         proc_logger.info(f'        Starting energy: {einit} {energy_units}')
         
@@ -305,20 +307,21 @@ def run_minimization(input_dict, openmm_dictionary = {}):
 #######################################
 
 def center(input_dict):
-    """function to take a pdb structure file and translate the structure's center of geometry to the origin. 
+    """function to take a pdb structure file and translate the structure's center of geometry to the origin. JUST AN EXAMPLE OF A POST-ANALYSIS FUNCTION 
     INPUT:
-        input_dict: a dictionary made by a previous task. Needs to contain (AT LEAST) these keys:
-            'pdb_file': path object associated with the pdb structure file that is to be translated
-            'logger_file': string pointing to a log file within which logging information is being written for this specific protein.
+        input_dict: dictionary containing all relevant keys and values needed to start the run for the specific system. At least includes values associated with these keys:
+            'pdb_file': pathlib Path object associated with the "fixed" pdb structure file that is ready for simulation.
+            'logger_file': pathlib Path object that points to a log file within which logging information is being written for this specific protein.
+            'return_code': integer value denoting the success of the previous function; 0 == successful preprocessing.
+    
     RETURNS:
-        output_dict: a dictionary with these keys: 
-        
-        
-        
-        
-        out_pdb : path object associated with the new, centered pdb structure file (written during the function)
-        start_time, stop_time: floats, time values
-        return_code: integer value denoting the success of this function. 
+        output_dict: dictionary containing all relevant info and objects for the run. Includes:
+            'task': string that describes this function's purpose
+            'nodeID', 'workerID': information about hardware being used for this calculation
+            'logger_file': pathlib Path object pointing to the system's specific log file
+            'output_pdb_file': path object pointing to the final energy minimized structure 
+            'start_time', 'stop_time': floats, time values
+            'return_code': integer value denoting the success of this function. 
     """
     # if the previous process failed, just close this task out. 
     if input_dict['return_code'] != 0:
@@ -331,7 +334,6 @@ def center(input_dict):
     output_dict = {'task': 'postprocessing', 
                    'nodeID': platform.node(), 
                    'workerID': get_worker().id,
-                   #'workerID': worker.id,
                    'start_time': time.time(),
                    'logger_file': logger_file,
                    'output_pdb_file': None,
@@ -339,7 +341,7 @@ def center(input_dict):
                    'return_code': None}
 
     # setting up the individual run's logging file
-    post_logger = setup_logger('minimization_logger', logger_file)
+    post_logger = setup_logger(f'{pdb_file.stem}_minimization_logger', logger_file)
     post_logger.info(f"Post-processing the energy minimized structure on {output_dict['nodeID']} with {output_dict['workerID']}.")
     post_logger.info(f"Removing CoG translation from the {pdb_file!s}.")
     
@@ -462,11 +464,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     client = Client(scheduler_file=args.scheduler_file,timeout=args.scheduler_timeout,name='all_tsks_client')
-    # assumes args.structure_list_file is a list file that has "path_to_structure nResidues" on every line
+    # assumes args.structure_list_file is a string pointing to a list file that has "path_to_structure nResidues" on every line
     with open(args.structure_list_file,'r') as structures_file:
         structure_list = [line.split() for line in structures_file.readlines() if line[0] != '#']
     
-    # sorted largest to smallest of the structure list; system size is a basic but good back-of-the-envelope estimate of computational cost
+    # sorted largest to smallest of the structure list; system size is a basic but good estimate of computational cost
     sorted_structure_list = sorted(structure_list, key = lambda x: int(x[1]))[::-1]
     sorted_structure_paths= [Path(structure[0]) for structure in sorted_structure_list]
 
@@ -474,7 +476,7 @@ if __name__ == '__main__':
     
     with open(args.openmm_parameters_dictionary,'rb') as pickle_file:
         openmm_dictionary = pickle.load(pickle_file)
-    # check if all parameters have been explicitly defined; if they haven't, fill in with default values. # NOTE apply this code.
+    ### TO DO: check if all parameters have been explicitly defined; if they haven't, fill in with default values. # NOTE apply this code.
 
     # set up timing log file
     timings_file = open(args.timings_file,'w')
@@ -482,9 +484,9 @@ if __name__ == '__main__':
     timings_csv.writeheader()
 
     # submit preprocessing tasks
-    preprocessing_futures = client.map(fix_protein,sorted_structure_paths, root_output_path = root_output_path, pure = False, resources={'CPU':1})
+    preprocessing_futures = client.map(fix_protein, sorted_structure_paths, root_output_path = root_output_path, pure = False, resources={'CPU':1})
     # submit processing tasks
-    processing_futures    = client.map(run_minimization,preprocessing_futures, openmm_dictionary = openmm_dictionary, pure = False, resources={'GPU':1})
+    processing_futures    = client.map(run_minimization, preprocessing_futures, openmm_dictionary = openmm_dictionary, pure = False, resources={'GPU':1})
     # submit postprocessing tasks
     postprocessing_futures= client.map(center, processing_futures, pure = False, resources={'CPU':1})
     # gathering all futures into one list
@@ -493,6 +495,7 @@ if __name__ == '__main__':
     finished_bucket = as_completed(futures_bucket)
     for task in finished_bucket: 
         results_dictionary = task.result()
+        # whether pre- processing, or post-processing, each task type will return similarly formatted output (in the form of a dictionary in this case) so we can process them similarly.
         append_timings(timings_csv,timings_file,results_dictionary['nodeID'],results_dictionary['workerID'],results_dictionary['start_time'],results_dictionary['stop_time'],results_dictionary['task'],results_dictionary['return_code'],str(results_dictionary['output_pdb_file'].parent))
 
     # CLOSE OUT
