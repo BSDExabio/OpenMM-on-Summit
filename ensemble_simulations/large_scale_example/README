@@ -1,0 +1,9 @@
+Submitting all 36,000 simulation tasks to the Dask.distributed scheduler at
+once creates a large bottleneck during the workflow start-up. More nuanced
+strategies should be used in these instances (e.g. daisy-chain tasks or submit
+as task batches). 
+
+Still, this workflow ran on 2000 compute nodes of Summit OLCF for ~30 minutes, 
+resulting in 18 microseconds of simulation in total. This is for a system of
+70k atoms. OpenMM is reaching ~189 ns day^{-1}. 
+

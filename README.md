@@ -1,7 +1,11 @@
 # OpenMM-on-Summit
 
-This repo is just meant as a tutorial on how to set up and run OpenMM on Summit.
-Most of the material is taken directly from the inspiremd git repo on the same subject that can be found [here](https://github.com/inspiremd/conda-recipes-summit).
+This repo is meant as a tutorial on how to set up and run OpenMM at scale on OLCF Summit.
+Installation and setup information is directly forked from the inspiremd git repo on the same subject that can be found [here](https://github.com/inspiremd/conda-recipes-summit).
+The subdirectories have code associated with applying the OpenMM toolkit and Dask.distributed workflows to perform molecular simulation tasks on leadship-scale compute allocations, prioritizing the full, efficient utilization of GPU resources while still putting the excess CPU resources to good use. 
+Admittedly, the given simulation tasks are relatively bog-standard and boring. 
+In [ensemble_simulations](https://github.com/BSDExabio/OpenMM-on-Summit/tree/main/ensemble_simulations), a large set of basic NVT simulations are run as tasks with each worker having 1 GPU : 1 CPU.
+In [minimization_and_analysis](https://github.com/BSDExabio/OpenMM-on-Summit/tree/main/minimization_and_analysis), a list of structures are provided in the Dask client script and each is subsequently parameterized, energy minimized, and quickly analyzed.  
 
 ## Setting up OpenMM on Summit
 
@@ -104,7 +108,7 @@ Integrated 50367 steps in 29.286 seconds
 A basic MD simulation script is presented in the `run_nvt_simulations.py` that will load up a Amber formatted prmtop and inpcrd (rst7) files and initiate a MD simulation. 
 This script can be run as below. 
 It will produce a log file, a simulation metric data file, and a DCD trajectory file as well as two forms of restart files, an OpenMM state file and an OpenMM checkpoint file. 
-The current parameters only run a 0.5 ns trajectory of a NVT simulation, yet the parameters are easily altered to run a variety of simulations.
+The current parameters only run a 0.5 ns trajectory of a NVT simulation but these can be changed to run a variety of other simulations.
 
 ```
 python3 run_nvt_simulations.py {prmtop} {rst7} {output_dir_descriptor} ./
@@ -112,5 +116,4 @@ python3 run_nvt_simulations.py {prmtop} {rst7} {output_dir_descriptor} ./
 
 ## Running OpenMM simulations at scale on Summit
 See the `ensemble_simulations/` and `minimization_and_analysis/`  subdirectories for codes and discussion of running OpenMM simulations across many nodes of Summit. 
-These codes are also transferable to other HPC resources with minor to no changes. 
 

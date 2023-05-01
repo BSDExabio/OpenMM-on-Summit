@@ -6,12 +6,9 @@ Specifically, the `md_tskmgr.py` python script functions as a Dask Client script
 The provided batch scripts (i.e. `single_partition.sh`) are used to submit the workflow to a Summit compute allocation and spin up the Dask distributed Scheduler and a set of Workers. 
 The Scheduler handles the coordination of tasks between the Client script and the Workers.
 The Workers are subsets or portions of the full compute allocation that function as the resources used to perform individual tasks.
-The `analyze_timings.py` and `plotting_timing_results.ipynb` are basic python scripts/jupyter notebooks that I have developed to visualize the workflow's efficiency. 
-
 
 To submit the workflow on Summit: 
 ```
 bsub single_partition.sh
 ```
-
 

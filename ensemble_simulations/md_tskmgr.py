@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-""" Task manager for running the dask pipeline for OpenMM molecular dynamics simulations on Summit. 
+""" Task manager for running the dask pipeline for OpenMM molecular dynamics 
+    simulations on Summit. 
 
-    Ingests a set of prmtop and inpcrd files and distributes work to run MD simulations of them among allocated dask workers. The dask workers will be assigned to a single GPU and associated CPUs. 
+    Ingests a set of prmtop and inpcrd files and distributes work to run MD 
+    simulations of them among allocated dask workers. The dask workers will be 
+    assigned to a single GPU and associated CPUs. 
 
     USAGE: 
-        python3 md_taskmgr.py [-h] --scheduler-file SCHEDULER_FILE --input-file INPUT_FILE --timings-file TIMINGS_FILE.csv --working-dir /path/to/dir/ --script-path /path/to/dir/script.py
+        python3 md_taskmgr.py [-h] --scheduler-file SCHEDULER_FILE \
+                                   --N-simulations INTEGER \
+                                   --timings-file TIMINGS_FILE.csv \
+                                   --working-dir /path/to/dir/ \
+                                   --run-dir /path/to/dir/run_x/ \
+                                   --nvme-path /path/on/nvme/ \
+                                   --tskmgr-log-file /path/to/dir/log_file.log \
 
     INPUT: 
         -h, --help      show this help message and exit
@@ -24,8 +33,8 @@
                         path to a new log file within which logging information will be pritned
 
     HARD CODED VARIABLES:
-        PRMTOP_FILE:
-        INPCRD_FILE:
+        PRMTOP_FILE: path string pointing to the Amber prmtop file to be used for the model
+        INPCRD_FILE: path string pointing to the Amber inpcrd file to be used for the model
 """
 
 import sys
@@ -50,8 +59,8 @@ from distributed import Client, Worker, as_completed, get_worker
 import logging
 
 # NOTE: hard coded variables for the moment.
-PRMTOP_FILE = '/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/md_simulations/enam_726.prmtop'
-INPCRD_FILE = '/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/md_simulations/enam_726.ncrst'
+PRMTOP_FILE = '/path/to/prmtop/file/prmtop'
+INPCRD_FILE = '/path/to/inpcrd/file/ncrst'
 
 #######################################
 ### BASIC LOGGING FUNCTIONS 

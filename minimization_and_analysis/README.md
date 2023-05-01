@@ -23,9 +23,11 @@ bsub dask_workflow.sh
 There are a few important details to note in this code. 
 Firstly, the `dask-scheduler` call is given only 2 CPU cores (see line 75, `--cpu_per_rs`). 
 As the number of tasks being performed during the workflow or the total number of workers become large, you will want to increase the compute resources provided to the Dask scheduler because it handles the communications between all workers and the Dask client.
-Secondly, two populations of Dask workers are initiated on lines 87 and 93 associated with `dask-worker` commands. 
-The first population is provided 1 CPU core and 1 GPU; this set of workers are labeled "GPU=1". On Summit, there are 6 of these workers per compute node since each node has 6 GPUs. 
-The second population is provided 1 CPU core; this set of workers are labeled "CPU=1". 32 of these workers are started per compute node. 
+Secondly, two populations of Dask workers are initiated with the two `dask-worker` commands. 
+The first population is provided 1 CPU core and 1 GPU; this set of workers are labeled "GPU=1". 
+On Summit, there are 6 of these workers per compute node since each node has 6 GPUs. 
+The second population is provided 1 CPU core; this set of workers are labeled "CPU=1". 
+32 of these workers are started per compute node. 
 Finally, the tasks are defined, the Dask client is started, and results are gathered within the `energy_minimization_workflow.py` script. 
 
 ## The client script: `energy_minimization_workflow.py`
@@ -33,9 +35,7 @@ Each of the three tasks described above are defined as functions within this scr
 As a whole, these functions represent one, over-arching pipeline for a single protein model broken down into three seperate tasks. 
 Doing so allows Dask to efficiently manage compute resources and task assignment to workers; only Step 2 requires GPU resources so the other steps are pushed to CPU-only workers. 
 The general structure of the dask workflow is independent of the task functions defined in this script; accounting for different task dependencies and resource requirements, this Dask workflow can be implemented for any number of other applications with minimal changes.
-The dask Client is instantiated on line 466, which connects the client with scheduler. 
-Then, tasks are mapped to the client, leading to the scheduler beginning to hand out tasks to the workers, on lines 486 to 491. 
-Note that the list of Dask "futures" is the input for the next steps' set of tasks, thus the tasks are daisy-chained together; once a step 1 task is completed, the associated step 2 task is ready to be processed by a worker and so on. 
-Finally, the set of "future" objects are iterated over as they complete to gather timing information and perform any final logging steps (there are none in this example code). 
+Note that the list of Dask futures for one task is used as the input for the next step's task; once a step 1 task is completed, the associated step 2 task is ready to be processed by a worker and so on. 
+Finally, the set of "future" objects are iterated over as they complete to gather timing information and perform any final logging steps. 
 Once all tasks are completed, the client script shuts down and the batch script kills the jsrun'ed scheduler and worker commands. 
 

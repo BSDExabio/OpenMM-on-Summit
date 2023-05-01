@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-#BSUB -P BIF135-ONE
-#BSUB -W 0:45
+#BSUB -P YOURACCOUNTHERE
+#BSUB -W 0:40
 #BSUB -nnodes 1500
 #BSUB -alloc_flags "gpudefault nvme"
 #BSUB -J dask_testing
@@ -35,9 +35,9 @@ unset __conda_setup
 conda activate openmm
 
 # set active directory and file variables
-SRC_DIR=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/md_simulations/nvme_capable
-RUN_DIR=$SRC_DIR/$LSB_JOBID
-SCHEDULER_FILE1=${RUN_DIR}/scheduler_file_1.json
+SRC_DIR=/path/to/source/dir
+RUN_DIR=/path/to/working/dir/$LSB_JOBID
+SCHEDULER_FILE=${RUN_DIR}/scheduler_file.json
 
 # prepare the run directory
 if [ ! -d "$RUN_DIR" ]
@@ -53,13 +53,14 @@ cat $LSB_DJOB_HOSTFILE | sort | uniq > $LSB_JOBID.hosts		# catches both the batc
 N_HOSTS=$(cat $LSB_JOBID.hosts | wc -l)	# count number of lines in $LSB_JOBID.hosts; one line will be associated with the batch/head node which will not be used to run calculations
 let x=$N_HOSTS y=1 N_NODES=x-y
 let x=$N_NODES y=6 N_WORKERS=x*y
+# arbitrarily setting number of tasks to be 3 x N_WORKERS
 let x=$N_WORKERS y=3 N_TASKS=x*y
 
 echo "################################################################################"
 echo "Using python: " `which python3`
 echo "PYTHONPATH: " $PYTHONPATH
 echo "SRC_DIR: " $SRC_DIR
-echo "scheduler file1:" $SCHEDULER_FILE1
+echo "scheduler file:" $SCHEDULER_FILE
 echo "NUMBER OF NODES: $N_NODES"
 echo "NUMBER OF WORKERS: $N_WORKERS"
 echo "NUMBER OF SIMULATION TASKS: $N_TASKS"
@@ -73,30 +74,29 @@ dask_pids=""
 ##
 # The scheduler doesn't need GPUs. We give it 36 CPUs to handle the overhead of managing so many workers.
 jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 36 --gpu_per_rs 0 --latency_priority cpu-cpu --bind none \
-	--stdio_stdout ${RUN_DIR}/dask_scheduler1.stdout --stdio_stderr ${RUN_DIR}/dask_scheduler1.stderr \
-	dask-scheduler --interface ib0 --no-dashboard --no-show --scheduler-file $SCHEDULER_FILE1 &
+	--stdio_stdout ${RUN_DIR}/dask_scheduler.stdout --stdio_stderr ${RUN_DIR}/dask_scheduler.stderr \
+	dask-scheduler --interface ib0 --no-dashboard --no-show --scheduler-file $SCHEDULER_FILE &
 dask_pids="$dask_pids $!"
-
-## Give the scheduler a chance to spin up.
-#sleep 5
 
 ##
 ## Start the dask-workers, which will be paired up to an individual GPU.  This bash script will manage the dask workers and GPU allocation for each Summit node.
 ##
 # Now launch ALL the dask workers simultaneously.  They won't come up at the same time, though.
 jsrun --smpiargs="off" --rs_per_host 6 --tasks_per_rs 1 --cpu_per_rs 1 --gpu_per_rs 1 --latency_priority gpu-cpu --bind none \
-	--stdio_stdout ${RUN_DIR}/dask_worker1.stdout --stdio_stderr ${RUN_DIR}/dask_worker1.stderr \
-	dask-worker --nthreads 1 --nworkers 1 --interface ib0 --no-dashboard --no-nanny --reconnect --scheduler-file ${SCHEDULER_FILE1} &
+	--stdio_stdout ${RUN_DIR}/dask_worker.stdout --stdio_stderr ${RUN_DIR}/dask_worker.stderr \
+	dask-worker --nthreads 1 --nworkers 1 --interface ib0 --no-dashboard --no-nanny --reconnect --scheduler-file ${SCHEDULER_FILE} &
 dask_pids="$dask_pids $!"
-
-## Hopefully long enough for some workers to spin up and wait for work
-#echo Waiting for workers
-#sleep 5
 
 # Run the client task manager; this just needs a single core to noodle away on but we can give it some more just in case...
 jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 36 --gpu_per_rs 0 --latency_priority cpu-cpu \
-	--stdio_stdout ${RUN_DIR}/tskmgr1.stdout --stdio_stderr ${RUN_DIR}/tskmgr1.stderr \
-	python3 ${SRC_DIR}/md_tskmgr.py --scheduler-file $SCHEDULER_FILE1 --N-simulations $N_TASKS --timings-file timings1.csv --tskmgr-log-name tskmgr1.log --working-dir ${RUN_DIR} --run-dir md_simulations --nvme-path /mnt/bb/$USER/
+	--stdio_stdout ${RUN_DIR}/tskmgr.stdout --stdio_stderr ${RUN_DIR}/tskmgr.stderr \
+	python3 ${SRC_DIR}/md_tskmgr.py --scheduler-file $SCHEDULER_FILE \
+					--N-simulations $N_TASKS \
+					--timings-file timings.csv \
+					--tskmgr-log-name tskmgr.log \
+					--working-dir ${RUN_DIR} \
+					--run-dir md_simulations \
+					--nvme-path /mnt/bb/$USER/
 signal=$?
 
 # We're done so kill the scheduler and worker processes

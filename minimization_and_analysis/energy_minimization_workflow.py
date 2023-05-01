@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
-""" Task manager for running a dask workflow for OpenMM energy minimization pipeline. Three steps:
-    System preparation. Add missing atoms (mainly hydrogens) and prep a pdb file for loading into OpenMM. Run on CPU resource workers. 
-    Energy minimization. Perform the OpenMM energy minimization calculation on GPU resource workers.
-    Post-analysis, a centering script to remove translational motion as an example. Run on CPU resource workers. 
+""" Task manager for running a dask workflow for OpenMM energy minimization 
+    pipeline. Three steps:
+        System preparation. Add missing atoms (mainly hydrogens) and prep a pdb 
+            file for loading into OpenMM. Run on CPU resource workers. 
+        Energy minimization. Perform the OpenMM energy minimization calculation 
+            on GPU resource workers.
+        Post-analysis, a centering script to remove translational motion as an 
+            example. Run on CPU resource workers. 
 
     USAGE: 
-        python3 energy_minimization_workflow.py [-h] [--scheduler-timeout SCHEDULER_TIMEOUT] --scheduler-file SCHEDULER_FILE --structure-list-file INPUT_FILE --working-dir /path/to/dir/ --openmm-parameters-dictionary OPENMM_DICT.pkl --timings-file TIMINGS_FILE.csv 
+        python3 energy_minimization_workflow.py [-h] --scheduler-file SCHEDULER_FILE \
+                                                     --list-file INPUT_FILE \
+                                                     --output-dir /path/to/dir/ \
+                                                     --parameter-file OPENMM_DICT.pkl \
+                                                     --tskmgr-log-file log_file.log \
+                                                     --timings-file TIMINGS_FILE.csv 
 
     INPUT: 
         -h, --help      show this help message and exit
-        --scheduler-timeout SCHEDULER_TIMEOUT, -t SCHEDULER_TIMEOUT 
-                        dask scheduler timeout; default: 5000 seconds
         --scheduler-file SCHEDULER_FILE, -s SCHEDULER_FILE
                         dask scheduler file
-        --structure-list-file INPUT_FILE, -inp INPUT_FILE
+        --list-file INPUT_FILE, -inp INPUT_FILE
                         file with paths and sequence lengths of protein structures to be submitted to the workflow
-        --working-dir /path/to/dir/, -wd /path/to/dir/
+        --output-dir /path/to/dir/, -wd /path/to/dir/
                         full path to the directory within which files will be written
-        --openmm-parameters-dictionary OPENMM_DICT.pkl, -omm OPENMM_DICT.pkl
+        --parameter-file OPENMM_DICT.pkl, -param OPENMM_DICT.pkl
                         pickle file containing a dictionary with parameters used in OpenMM simulations
+        --tskmgr-log-file TSKMGR.log, -log TSKMGR.log
+                        path to a new log file within which logging information will be pritned
         --timings-file TIMINGS_FILE.csv, -ts TIMINGS_FILE.csv 
                         CSV file for task processing timings
 """
@@ -35,6 +44,7 @@ import os
 import time
 import csv
 import stat
+import traceback
 from pathlib import Path
 import pickle
 
@@ -194,7 +204,7 @@ def run_minimization(input_dict, openmm_dictionary = {}):
                    'stop_time' : None,
                    'return_code': None}
 
-    out_file_path = logger_file.parent / logger_file.stem
+    out_file_path = pdb_file.parent / pdb_file.stem
     # setting up the individual run's logging file
     proc_logger = setup_logger(f'{pdb_file.stem}_minimization_logger', logger_file)
     proc_logger.info(f"Prepping OpenMM simulation object and running energy minimization on {output_dict['nodeID']} with {output_dict['workerID']}.")
@@ -298,6 +308,7 @@ def run_minimization(input_dict, openmm_dictionary = {}):
         
         if output_dict['return_code'] == 0:
             proc_logger.info(f"Finished the processing task. This took {output_dict['stop_time']-output_dict['start_time']} seconds.\n")
+        clean_logger(proc_logger)
         
         return output_dict
 
@@ -365,6 +376,7 @@ def center(input_dict):
         return_code = 0
 
     except Exception as e:
+        print(str(out_file_path),str(e), file=sys.stderr, flush=True)
         post_logger.info(f'For {pdb_file!s}: postprocessing code, center, failed with the following exception:\n{e}\n')
         return_code = 1
 
@@ -454,27 +466,42 @@ if __name__ == '__main__':
    
     # read command line arguments.
     parser = argparse.ArgumentParser(description='Energy minimization task manager')
-    parser.add_argument('--scheduler-timeout', '-t', default=5000, type=int, help='dask scheduler timeout')
     parser.add_argument('--scheduler-file', '-s', required=True, help='dask scheduler file')
-    parser.add_argument('--structure-list-file', '-inp', required=True, help='file with paths and sequence lengths of protein structures to be submitted to the workflow')
-    parser.add_argument('--working-dir', '-wd', required=True, help='path that points to the working directory for the output files')
-    parser.add_argument('--openmm-parameters-dictionary', '-omm', required=True, help='pickle file containing a dictionary with parameters used in OpenMM simulations')
+    parser.add_argument('--list-file', '-inp', required=True, help='file with paths and sequence lengths of protein structures to be submitted to the workflow')
+    parser.add_argument('--output-dir', '-wd', required=True, help='path that points to the working directory for the output files')
+    parser.add_argument('--parameters-file', '-param', required=True, help='pickle file containing a dictionary with parameters used in OpenMM simulations')
+    parser.add_argument('--tskmgr-log-name', '-log', required=True, help='string that will be used to store logging info for this run')
     parser.add_argument('--timings-file', '-ts', required=True, help='CSV file for protein processing timings')
     
     args = parser.parse_args()
 
-    client = Client(scheduler_file=args.scheduler_file,timeout=args.scheduler_timeout,name='all_tsks_client')
-    # assumes args.structure_list_file is a string pointing to a list file that has "path_to_structure nResidues" on every line
-    with open(args.structure_list_file,'r') as structures_file:
+    # logger file
+    main_logger = setup_logger('tskmgr_logger',output_dir + f'/{args.tskmgr_log_name}')
+    main_logger.info(f'Starting dask pipeline. Time: {time.time()}\nRUN PARAMETERS:\nOutput directory: {args.output_dir}\nScheduler file: {args.scheduler_file}\nTiming file: {args.timings_file}\nStructure list file: {args.list_file}\nOpenMM parameters file: {args.parameters_file}')
+    # gather dask parameters too
+    dask_parameter_string = ''
+    for key, value in dask.config.config.items():
+        dask_parameter_string += f"'{key}': '{value}'\n"
+    dask_parameter_string += '################################################################################'
+    main_logger.info(f'################################################################################\nDask parameters:\n{dask_parameter_string}')
+    # report on the client and workers
+    main_logger.info(f'Client information: {client}')
+    
+    # spin up the client
+    client = Client(scheduler_file=args.scheduler_file,timeout=5000,name='all_tsks_client')
+
+    # assumes args.list_file is a string pointing to a list file that has "path_to_structure nResidues" on every line
+    with open(args.list_file,'r') as structures_file:
         structure_list = [line.split() for line in structures_file.readlines() if line[0] != '#']
     
     # sorted largest to smallest of the structure list; system size is a basic but good estimate of computational cost
     sorted_structure_list = sorted(structure_list, key = lambda x: int(x[1]))[::-1]
     sorted_structure_paths= [Path(structure[0]) for structure in sorted_structure_list]
+    main_logger.info(f'{len(structure_list)} structures to be processed.')
 
-    root_output_path = Path(args.working_dir)
+    root_output_path = Path(args.output_dir)
     
-    with open(args.openmm_parameters_dictionary,'rb') as pickle_file:
+    with open(args.parameters_file,'rb') as pickle_file:
         openmm_dictionary = pickle.load(pickle_file)
     ### TO DO: check if all parameters have been explicitly defined; if they haven't, fill in with default values. # NOTE apply this code.
 
@@ -483,11 +510,13 @@ if __name__ == '__main__':
     timings_csv = csv.DictWriter(timings_file,['nodeID','workerID','start_time','stop_time','task','return_code','file_path'])
     timings_csv.writeheader()
 
+    # do the thing.
+    main_logger.info(f'Submitting tasks at {time.time()}')
     # submit preprocessing tasks
     preprocessing_futures = client.map(fix_protein, sorted_structure_paths, root_output_path = root_output_path, pure = False, resources={'CPU':1})
-    # submit processing tasks
+    # submit processing tasks, input preprocessing_futures
     processing_futures    = client.map(run_minimization, preprocessing_futures, openmm_dictionary = openmm_dictionary, pure = False, resources={'GPU':1})
-    # submit postprocessing tasks
+    # submit postprocessing tasks, input processing_futures
     postprocessing_futures= client.map(center, processing_futures, pure = False, resources={'CPU':1})
     # gathering all futures into one list
     futures_bucket = preprocessing_futures + processing_futures + postprocessing_futures
@@ -497,11 +526,7 @@ if __name__ == '__main__':
         results_dictionary = task.result()
         # whether pre- processing, or post-processing, each task type will return similarly formatted output (in the form of a dictionary in this case) so we can process them similarly.
         append_timings(timings_csv,timings_file,results_dictionary['nodeID'],results_dictionary['workerID'],results_dictionary['start_time'],results_dictionary['stop_time'],results_dictionary['task'],results_dictionary['return_code'],str(results_dictionary['output_pdb_file'].parent))
+        main_logger.info(f"{str(results_dictionary['output_pdb_file'].parent} finished with {results_dictionary['task']}. Return status = {results_dictionary['return_code']}.")
 
-    # CLOSE OUT
-    # Because Summit needs nudging
-    sys.stdout.flush()
-    sys.stderr.flush()
-    
     print('Client script closing:',time.time())
 

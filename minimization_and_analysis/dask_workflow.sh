@@ -1,10 +1,6 @@
 #!/bin/bash
 #
-# Batch submission script for testing post-AF minimization run on Summit
-#
-# Support issue-14 branch on PSP git repository
-#
-#BSUB -P BIF135-ONE
+#BSUB -P YOURACCOUNTHERE
 #BSUB -W 2:00
 #BSUB -nnodes 1
 #BSUB -alloc_flags gpudefault
@@ -40,9 +36,9 @@ conda activate openmm
 PYTHONPATH=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/Min_and_analysis:$PYTHONPATH
 
 # set active directories
-RUN_DIR=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/Min_and_analysis/testing
+SRC_DIR=/path/to/source/dir
+RUN_DIR=/path/to/working/dir/$LSB_JOBID
 SCHEDULER_FILE=${RUN_DIR}/scheduler_file.json
-SRC_DIR=/gpfs/alpine/bif135/proj-shared/rbd_work/dask_testing/Min_and_analysis/
 
 if [ ! -d "$RUN_DIR" ]
 then
@@ -54,15 +50,19 @@ cd $RUN_DIR
 cat $LSB_DJOB_HOSTFILE | sort | uniq > $LSB_JOBID.hosts		# catches both the batch and compute nodes; not super interested in the batch node though, right?
 
 # We need to figure out the number of nodes to later spawn the workers
-NUM_NODES=$(cat $LSB_JOBID.hosts | wc -l)	# count number of lines in $LSB_JOBID.hosts
-export NUM_NODES=$(expr $NUM_NODES - 1)		# subtract by one to ignore the batch node
+N_HOSTS=$(cat $LSB_JOBID.hosts | wc -l)	# count number of lines in $LSB_JOBID.hosts; one line will be associated with the batch/head node which will not be used to run calculations
+let x=$N_HOSTS y=1 N_NODES=x-y
+let x=$N_NODES y=6 GPU_N_WORKERS=x*y
+let x=$N_NODES y=32 CPU_N_WORKERS=x*y
 
 echo "################################################################################"
 echo "Using python: " `which python3`
 echo "PYTHONPATH: " $PYTHONPATH
 echo "SRC_DIR: " $SRC_DIR
-echo "CPU scheduler file:" $SCHEDULER_FILE
-echo "NUM_NODES: $NUM_NODES"
+echo "SCHEDULER FILE: " $SCHEDULER_FILE
+echo "NUMBER OF NODES: " $N_NODES
+echo "NUMBER OF GPU WORKERS: " $GPU_N_WORKERS
+echo "NUMBER OF CPU WORKERS: " $CPU_N_WORKERS
 echo "################################################################################"
 
 # gathering process ids for each step of the workflow.
@@ -76,9 +76,6 @@ jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 2 -
 	--stdio_stdout ${RUN_DIR}/gpu_dask_scheduler.stdout --stdio_stderr ${RUN_DIR}/gpu_dask_scheduler.stderr \
 	dask-scheduler --interface ib0 --no-dashboard --no-show --scheduler-file $SCHEDULER_FILE &
 dask_pids="$dask_pids $!"
-
-# Give the scheduler a chance to spin up.
-sleep 5
 
 ##
 ## Start the dask-worker sets
@@ -95,14 +92,16 @@ jsrun --smpiargs="off" --rs_per_host 32 --tasks_per_rs 1 --cpu_per_rs 1 --gpu_pe
 	dask-worker --nthreads 1 --nworkers 1 --interface ib0 --no-dashboard --no-nanny --reconnect --scheduler-file ${SCHEDULER_FILE} --resources "CPU=1" &
 dask_pids="$dask_pids $!"
 
-echo Waiting for workers
-
-# Hopefully long enough for some workers to spin up and wait for work
-sleep 5
-
-# Run the client task manager; like the scheduler, this just needs a single core to noodle away on, which python takes naturally (no jsrun call needed)
+# Run the client task manager; like the scheduler, this just needs a single core to noodle away on
 jsrun --smpiargs="off" --nrs 1 --rs_per_host 1 --tasks_per_rs 1 --cpu_per_rs 1 --gpu_per_rs 0 --latency_priority cpu-cpu \
-	python3 ${SRC_DIR}/energy_minimization_workflow.py $SCHEDULER_FILE ${SRC_DIR}/structure_list.txt ${RUN_DIR}/ ${SRC_DIR}/sample_openmm_parameters.pkl ${RUN_DIR}/timings.csv
+	python3 ${SRC_DIR}/energy_minimization_workflow.py --scheduler-file $SCHEDULER_FILE\
+       							   --list-file ${SRC_DIR}/structure_list.txt \
+							   --output-dir ${RUN_DIR}/ \
+							   --parameter-file ${SRC_DIR}/sample_openmm_parameters.pkl \
+							   --tskmgr-log-name ${RUN_DIR}/tskmgr.log \
+							   --timings-file ${RUN_DIR}/timings.csv
+
+signal=$?
 
 # shutting down dask scheduler and worker commands
 for pid in $dask_pids
@@ -110,7 +109,7 @@ do
         kill $pid
 done
 
-echo Run finished.
+[ $signal -eq 0 ] && echo "Run finished successfully."
 
 date
 
