@@ -3,7 +3,7 @@
 This repo is meant as a tutorial on how to set up and run OpenMM at scale on OLCF Summit.
 Installation and setup information is directly forked from the inspiremd git repo on the same subject that can be found [here](https://github.com/inspiremd/conda-recipes-summit).
 The subdirectories have code associated with applying the OpenMM toolkit and Dask.distributed workflows to perform molecular simulation tasks on leadship-scale compute allocations, prioritizing the full, efficient utilization of GPU resources while still putting the excess CPU resources to good use. 
-[comment](Admittedly, the given simulation tasks are relatively bog-standard and boring.) 
+
 In [ensemble_simulations](https://github.com/BSDExabio/OpenMM-on-Summit/tree/main/ensemble_simulations), a large set of basic NVT simulations are run as tasks with each worker having 1 GPU : 1 CPU.
 In [minimization_and_analysis](https://github.com/BSDExabio/OpenMM-on-Summit/tree/main/minimization_and_analysis), a list of structures are provided in the Dask client script and each is subsequently parameterized, energy minimized, and quickly analyzed.  
 
